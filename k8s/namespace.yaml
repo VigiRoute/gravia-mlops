@@ -1,0 +1,8 @@
+# Isole les ressources GRAVIA du reste du cluster (namespaces système kube-system, etc.) —
+# convention standard K8s, équivalent du `name: gravia` explicite de docker-compose.yml côté
+# gravia (cf. infra/docker-compose.yml) : éviter que les ressources se mélangent avec celles
+# d'un autre projet sur le même cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gravia

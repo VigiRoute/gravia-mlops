@@ -1,0 +1,19 @@
+# Service = adresse réseau stable qui route vers les Pods du Deployment (`selector`), peu importe
+# lesquels tournent à un instant donné ou combien il y en a — équivalent du nom de service
+# `serving:8000` dans le réseau Docker Compose (cf. gravia/infra/docker-compose.yml), mais qui
+# répartit aussi la charge entre les répliques (aucun équivalent direct dans Compose).
+#
+# ClusterIP (pas NodePort/LoadBalancer) : accès via `kubectl port-forward` pour la démo locale
+# (cf. CLAUDE.md, section vérification) — un Ingress serait le choix cible en prod EKS
+# (cf. Architecture_GRAVIA.md côté gravia), hors de portée de cette démo kind à un seul nœud.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gravia-serving
+  namespace: gravia
+spec:
+  selector:
+    app: gravia-serving
+  ports:
+    - port: 8000
+      targetPort: 8000

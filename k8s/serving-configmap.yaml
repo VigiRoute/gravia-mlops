@@ -1,0 +1,20 @@
+# Config non sensible du serving — équivalent du bloc `environment:` de docker-compose.yml côté
+# gravia (cf. infra/docker-compose.yml, service `serving`), mais séparée du Deployment : changer
+# une URL ne redéploie pas l'image, juste la config (bonne pratique K8s).
+#
+# `host.docker.internal` plutôt que les noms de service Compose (`mlflow`, `minio`) : le cluster
+# kind est un réseau Docker isolé, distinct de celui de la stack `gravia` — il ne peut pas
+# résoudre ces noms. `host.docker.internal` est une entrée DNS spéciale de Docker Desktop qui
+# pointe vers la machine hôte depuis N'IMPORTE QUEL conteneur (y compris les nœuds kind, qui
+# sont eux-mêmes des conteneurs Docker) ; MLflow/MinIO restent joignables car docker-compose.yml
+# publie déjà leurs ports sur l'hôte (`0.0.0.0:5000->5000`, `0.0.0.0:9000->9000`). En cible EKS
+# réelle, ces URLs pointeraient vers un MLflow managé et AWS S3, pas cette astuce locale.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gravia-serving-config
+  namespace: gravia
+data:
+  MLFLOW_TRACKING_URI: http://host.docker.internal:5000
+  MINIO_ENDPOINT: http://host.docker.internal:9000
+  MLFLOW_S3_ENDPOINT_URL: http://host.docker.internal:9000

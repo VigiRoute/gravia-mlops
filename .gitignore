@@ -1,0 +1,9 @@
+# Secrets réels — jamais committés, cf. k8s/serving-secret.example.yaml
+k8s/serving-secret.yaml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example

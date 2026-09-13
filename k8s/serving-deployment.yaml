@@ -1,0 +1,71 @@
+# Deployment = "je veux N Pods identiques de ce conteneur, relance-les s'ils meurent". Équivalent
+# K8s du service `serving` de docker-compose.yml (cf. gravia/infra/docker-compose.yml), mais avec
+# la capacité de scaling/auto-guérison que Compose n'a pas — la raison même du choix K8s en cible
+# de prod (cf. gravia/CLAUDE.md, "Kubernetes en cible, pas en dev").
+#
+# 2 répliques (pas 1) : démontre concrètement la répartition de charge par le Service
+# (cf. serving-service.yaml) et l'auto-guérison — tuer un Pod ne coupe pas le service, l'autre
+# réplique absorbe le trafic pendant que K8s en recrée un troisième. Pas un dimensionnement de
+# charge réel (ça reste la démo locale kind, cf. CLAUDE.md).
+#
+# `imagePullPolicy: IfNotPresent` : l'image est chargée dans le cluster kind via
+# `kind load docker-image` (cf. CLAUDE.md), pas tirée d'un registry — sans ce réglage, K8s
+# tenterait par défaut de la retélécharger et échouerait (aucun registry configuré ici).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravia-serving
+  namespace: gravia
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gravia-serving
+  template:
+    metadata:
+      labels:
+        app: gravia-serving
+    spec:
+      containers:
+        - name: serving
+          image: gravia-serving:python3.12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: gravia-serving-config
+            - secretRef:
+                name: gravia-serving-secrets
+          # Délais bien plus généreux que le healthcheck docker-compose équivalent (constaté en
+          # testant sur kind) : l'image lance 4 workers uvicorn (cf. infra/serving/Dockerfile),
+          # chacun rechargeant indépendamment le modèle LightGBM + SHAP depuis MLflow/MinIO au
+          # démarrage — largement plus lent ici, contraint à 1 CPU (cf. `resources` ci-dessous)
+          # contre un accès libre aux cœurs de la machine hôte pour docker-compose. Un premier
+          # essai avec les délais docker-compose (15s) faisait échouer le liveness probe avant
+          # la fin du chargement, tuant le Pod en boucle de redémarrage (`CrashLoopBackOff`).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          # Bornes de ressources : sans elles, un Pod en dérive pourrait accaparer tout le nœud
+          # et affamer l'autre réplique — un des bénéfices concrets de K8s par rapport à Compose.
+          # Relevées par rapport à un premier essai (250m/512Mi-1/1Gi, insuffisant pour 4 workers
+          # chargeant chacun leur propre copie du modèle en parallèle au démarrage).
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
