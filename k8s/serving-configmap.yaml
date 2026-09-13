@@ -18,3 +18,10 @@ data:
   MLFLOW_TRACKING_URI: http://host.docker.internal:5000
   MINIO_ENDPOINT: http://host.docker.internal:9000
   MLFLOW_S3_ENDPOINT_URL: http://host.docker.internal:9000
+  # Sans ça, le client MLflow retente 7 fois avec backoff exponentiel avant d'abandonner un
+  # appel infructueux (~4 min par tentative de connexion, cf. gravia/.github/workflows/ci.yml
+  # pour le même piège déjà rencontré côté tests). Constaté sur le cluster kind du CD (aucune
+  # stack dev gravia à proximité, contrairement à la démo locale) : les Pods restaient `Running`
+  # sans jamais logguer d'erreur MLflow dans la fenêtre de vérification du job — pas un blocage
+  # réel, juste une attente bien plus longue que prévu à chaque essai de chargement du modèle.
+  MLFLOW_HTTP_REQUEST_MAX_RETRIES: "1"
