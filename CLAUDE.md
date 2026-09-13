@@ -14,8 +14,8 @@ complet du projet.
 ```
 gravia-mlops/
 ├── k8s/                     # manifests Kubernetes (déploiement du serving GRAVIA)
-├── terraform/                # IaC prod (LocalStack → AWS) — pas encore commencé
-└── .github/workflows/        # CD — pas encore commencé
+├── terraform/               # IaC prod (LocalStack → AWS) : network, storage, compute, mlops
+└── .github/workflows/       # CD — pas encore commencé
 ```
 
 ## Workflow Git
@@ -31,10 +31,11 @@ l'interface GitHub. Créer la PR (`gh pr create`) reste possible sur demande.
 
 **Le problème à résoudre** : le CDC exige des manifests Kubernetes pour la cible de production
 (EKS, cf. `Architecture_GRAVIA.md` côté `gravia` : scaling et haute disponibilité du serving).
-Sans budget cloud, impossible de déployer sur un vrai EKS. Pour Terraform, la solution retenue
-côté `gravia` a été **LocalStack** (émulation locale et gratuite de l'API AWS) — mais LocalStack,
-même dans une édition payante Pro, n'émule pas EKS de la même façon qu'un vrai cluster K8s
-exécutable : ce n'est pas l'outil pertinent ici.
+Sans budget cloud, impossible de déployer sur un vrai EKS. LocalStack (utilisé pour Terraform,
+cf. section dédiée ci-dessous) n'est pas la bonne réponse pour ça : **constaté en testant**,
+l'édition Community (gratuite) refuse même ECR (403 « not included within your LocalStack
+license ») — EKS n'est pas mieux loti, et de toute façon une émulation d'API ne remplace pas un
+vrai control-plane Kubernetes exécutant de vrais Pods. Un autre outil est nécessaire ici.
 
 **La solution retenue : `kind`** (kubernetes-sigs/kind, v0.33.0, image de nœud figée par digest
 — cf. `k8s/kind-config.yaml`). `kind` crée un **vrai cluster Kubernetes** en utilisant des
@@ -118,7 +119,86 @@ faudrait un client qui frappe le Service depuis l'intérieur du cluster (un Pod 
   reste disponible via l'autre réplique pendant ce temps.
 - Scaling : `kubectl scale --replicas=3` puis retour à 2 → les deux transitions fonctionnent.
 
+## Terraform — IaC (LocalStack → AWS)
+
+Un module par responsabilité (cf. `Architecture_GRAVIA.md` §6.2 côté `gravia`) :
+
+| Module | Ressources | Applicable sur LocalStack Community ? |
+|---|---|---|
+| `network` | VPC, sous-réseau public + 2 sous-réseaux privés (2 AZ, exigence RDS), Internet Gateway, groupes de sécurité | ✅ oui (`ec2`) |
+| `storage` | Bucket S3 (lac de données) + RDS PostgreSQL (Gold/Airflow/MLflow) | ✅ S3 oui — ❌ RDS non (Pro) |
+| `compute` | Rôle IAM (nœuds EKS) + dépôts ECR + cluster EKS | ✅ IAM oui — ❌ ECR/EKS non (Pro) |
+| `mlops` | Secret Secrets Manager (identifiants PostgreSQL) | ✅ oui (`secretsmanager`) |
+
+### Pourquoi LocalStack (et sa vraie limite, constatée en testant)
+
+Même logique que côté `gravia` (`Architecture_GRAVIA.md` §2.1) : le **même code Terraform**
+cible LocalStack ou AWS réel, seuls l'endpoint et les identifiants changent
+(cf. `providers.tf`, `var.localstack_endpoint`). `terraform apply` contre LocalStack crée de
+**vraies ressources** (vérifiées via `awslocal`, pas seulement l'état Terraform) — pas un plan
+simulé.
+
+**Mais l'énoncé « même code, aucune ligne spécifique à l'émulateur » a une limite réelle,
+découverte en interrogeant directement l'API LocalStack Community (`/_localstack/health` puis
+un appel direct à `CreateRepository`/`DescribeDBInstances`) :**
+
+```
+{"message": "Sorry, the ecr service is not included within your LocalStack license, ..."}
+{"message": "Sorry, the rds service is not included within your LocalStack license, ..."}
+```
+
+**ECR et RDS sont réservés à la licence Pro** (payante) — seuls `s3`, `iam`, `ec2`, `kms`,
+`sts`, `secretsmanager` sont disponibles gratuitement. Solution : la variable
+`var.include_pro_only_services` (défaut `false`) conditionne (`count = ... ? 1 : 0`) les
+ressources RDS/ECR/EKS — écrites et valides (`terraform plan -var="include_pro_only_services=true"`
+les affiche correctement) pour satisfaire l'exigence CDC d'une architecture AWS **intégralement
+documentée**, mais jamais appliquées contre LocalStack Community. À activer uniquement contre
+AWS réel (ou une licence LocalStack Pro, non utilisée ici).
+
+**EKS n'est de toute façon jamais appliqué dans ce dépôt**, licence Pro ou non : sa réalité
+opérationnelle (Deployment/Service/scaling/auto-guérison) est déjà vérifiée pour de vrai via
+`kind` (section ci-dessus) — le bloc `aws_eks_cluster` documente la cible AWS, il ne remplace
+pas cette vérification.
+
+### Reproduire
+
+```bash
+# 1. Démarrer LocalStack (indépendant de la stack dev gravia)
+docker compose -f terraform/docker-compose.localstack.yml up -d
+
+# 2. Préparer les variables réelles (jamais committées, cf. .gitignore)
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+
+# 3. Init, plan, apply
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+
+# 4. Vérifier avec le CLI AWS embarqué dans le conteneur LocalStack (pas seulement l'état
+#    Terraform) — la région doit être explicite (eu-west-1, sinon le CLI retombe sur us-east-1)
+docker exec gravia-mlops-localstack-1 awslocal s3 ls
+docker exec gravia-mlops-localstack-1 awslocal ec2 describe-vpcs --region eu-west-1
+docker exec gravia-mlops-localstack-1 awslocal secretsmanager get-secret-value \
+  --region eu-west-1 --secret-id gravia-dev-db-credentials --query SecretString --output text
+
+# 5. Nettoyer
+terraform destroy
+docker compose -f terraform/docker-compose.localstack.yml down -v
+```
+
+### Vérifié sur LocalStack réel (2026-09-13)
+
+- `terraform apply` : **14 ressources créées** (network + storage/S3 + compute/IAM + mlops),
+  0 avec `include_pro_only_services=false` en échec.
+- Chaque ressource vérifiée individuellement via `awslocal` (pas seulement l'état Terraform) :
+  VPC `gravia-dev-vpc`, 2 sous-réseaux privés dans `eu-west-1a`/`eu-west-1b`, sous-réseau public,
+  2 groupes de sécurité, bucket S3 `gravia-dev-lake`, secret Secrets Manager avec la bonne
+  valeur, rôle IAM.
+- `terraform plan` après apply : **aucune dérive** (idempotence confirmée).
+- `terraform plan -var="include_pro_only_services=true"` : les 5 ressources RDS/ECR/EKS
+  apparaissent correctement dans le plan (jamais appliquées ici).
+
 ## Pas encore commencé
 
-- **Terraform** (`terraform/`) — IaC pour storage/network/compute/mlops contre LocalStack.
 - **CI/CD** (`.github/workflows/`) — déploiement automatisé, réentraînement planifié.

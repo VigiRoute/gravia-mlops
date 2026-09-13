@@ -7,3 +7,4 @@ k8s/serving-secret.yaml
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+tfplan

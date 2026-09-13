@@ -1,0 +1,17 @@
+# LocalStack sert UNIQUEMENT à exécuter le Terraform de ce dépôt en local (cf. CLAUDE.md,
+# "Pourquoi LocalStack") — indépendant de la stack dev de `gravia` (MinIO y joue déjà ce rôle
+# pour Bronze/Silver, mais MinIO n'émule que S3, pas IAM/RDS/ECR/Secrets Manager).
+name: gravia-mlops
+services:
+  localstack:
+    image: localstack/localstack:4.14.0
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,iam,ecr,secretsmanager,sts,ec2
+      DEBUG: "0"
+    volumes:
+      - localstack-data:/var/lib/localstack
+
+volumes:
+  localstack-data:
