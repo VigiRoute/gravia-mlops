@@ -1,0 +1,14 @@
+# Copier en terraform.tfvars (ignoré par .gitignore) et adapter.
+# Même convention que gravia/.env.example (cf. gravia/CLAUDE.md).
+
+environment = "dev"
+aws_region  = "eu-west-1"
+
+# Vide ("") pour cibler AWS réel ; http://localhost:4566 pour LocalStack (défaut).
+localstack_endpoint = "http://localhost:4566"
+
+# false contre LocalStack Community (RDS/ECR/EKS payants, cf. variables.tf) ; true contre AWS
+# réel ou LocalStack Pro.
+include_pro_only_services = false
+
+db_password = "changeme-local-demo"
