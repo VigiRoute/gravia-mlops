@@ -1,0 +1,119 @@
+# CD (moitié "déployer" du couple gravia/gravia-mlops, cf. CLAUDE.md, organisation en deux
+# dépôts) : applique le Terraform contre un vrai LocalStack et déploie le serving sur un vrai
+# cluster kind — tous deux lancés dans le runner GitHub Actions, pas seulement des manifests
+# jamais exécutés (même discipline que les vérifications locales, cf. CLAUDE.md).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Applicable en CI sans budget cloud : LocalStack Community en service du job (cf. CLAUDE.md,
+  # section Terraform — S3/IAM/EC2/Secrets Manager gratuits, RDS/ECR/EKS non appliqués ici).
+  terraform-apply:
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:4.14.0
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3,iam,ecr,secretsmanager,sts,ec2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.2
+
+      - name: Attendre que LocalStack soit prêt
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4566/_localstack/health && exit 0
+            sleep 3
+          done
+          echo "LocalStack non joignable" && exit 1
+
+      - name: terraform init / apply
+        working-directory: terraform
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Vérifier les ressources réelles (pas seulement l'état Terraform)
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: eu-west-1
+        run: |
+          pip install --quiet awscli
+          aws --endpoint-url=http://localhost:4566 s3 ls | grep gravia-dev-lake
+          aws --endpoint-url=http://localhost:4566 secretsmanager get-secret-value \
+            --secret-id gravia-dev-db-credentials --query SecretString --output text
+
+  # Déploie l'image publiée par gravia (cf. gravia/.github/workflows/publish-serving-image.yml)
+  # sur un vrai cluster K8s local — même outil (kind) et mêmes manifests que la vérification
+  # manuelle déjà documentée (cf. CLAUDE.md, "Pourquoi kind"), rejoués ici de façon automatisée.
+  # Indépendant de terraform-apply : ce sont deux démonstrations distinctes ("l'IaC s'applique",
+  # "les manifests K8s tournent"), pas un pipeline réel infra->déploiement (hors de portée sans
+  # vrai EKS, cf. CLAUDE.md).
+  #
+  # Limite assumée, pas contournée : ce runner n'a pas accès à un vrai MLflow/PostgreSQL/MinIO
+  # avec le modèle @staging réellement entraîné (contrairement à la démo locale, où la stack dev
+  # gravia tourne en parallèle du cluster kind) — reproduire ça en CI demanderait un MLflow + un
+  # modèle synthétique enregistrés ici même, une complexité distincte non traitée dans cette
+  # itération. Le Pod ne peut donc PAS devenir `Running` : il tente de joindre MLflow via
+  # `host.docker.internal:5000`, ne trouve personne, et c'est justement ce que ce job vérifie —
+  # que le déploiement (image, ConfigMap, Secret, Deployment, Service) est correctement câblé
+  # jusqu'au point où seule une vraie infra MLflow manque, pas un bug de packaging K8s.
+  k8s-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Créer le cluster
+        run: kind create cluster --name gravia --config k8s/kind-config.yaml
+
+      - name: Récupérer l'image publiée par gravia
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull ghcr.io/vigiroute/gravia-serving:latest
+          kind load docker-image ghcr.io/vigiroute/gravia-serving:latest --name gravia
+
+      - name: Préparer le Secret (valeurs de démo, jamais de vraies credentials en CI)
+        run: cp k8s/serving-secret.example.yaml k8s/serving-secret.yaml
+
+      - name: Adapter le manifest à l'image GHCR
+        run: sed -i 's#image: gravia-serving:python3.12#image: ghcr.io/vigiroute/gravia-serving:latest#' k8s/serving-deployment.yaml
+
+      - name: Déployer
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/serving-configmap.yaml
+          kubectl apply -f k8s/serving-secret.yaml
+          kubectl apply -f k8s/serving-deployment.yaml
+          kubectl apply -f k8s/serving-service.yaml
+
+      - name: Vérifier le déploiement (pas un /health réussi — cf. commentaire du job ci-dessus)
+        run: |
+          sleep 20
+          kubectl get pods -n gravia
+          echo "--- logs (doit montrer une tentative de connexion à host.docker.internal, pas une erreur de packaging) ---"
+          kubectl logs -n gravia -l app=gravia-serving --tail=80 | tee pod.log
+          # Le mode d'échec exact diffère entre environnements : sur Docker Desktop (démo
+          # locale), host.docker.internal résout mais rien n'écoute (Connection refused) ; sur
+          # ce runner Linux (Docker Engine standard, pas Docker Desktop), ce nom spécial n'est
+          # probablement même pas résolu (erreur DNS). Peu importe lequel : dans les deux cas,
+          # le nom `host.docker.internal` apparaît dans l'erreur — c'est ce qui prouve que le
+          # Pod a bien démarré, chargé sa config (ConfigMap/Secret), et tenté la bonne cible.
+          grep -qi "host.docker.internal" pod.log || \
+            (echo "Échec inattendu : pas la cause attendue (MLflow injoignable)" && exit 1)
