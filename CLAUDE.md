@@ -199,6 +199,50 @@ docker compose -f terraform/docker-compose.localstack.yml down -v
 - `terraform plan -var="include_pro_only_services=true"` : les 5 ressources RDS/ECR/EKS
   apparaissent correctement dans le plan (jamais appliquées ici).
 
-## Pas encore commencé
+## CD (`.github/workflows/deploy.yml`)
 
-- **CI/CD** (`.github/workflows/`) — déploiement automatisé, réentraînement planifié.
+Deux jobs indépendants, chacun exécutant réellement l'infra dans le runner GitHub Actions (pas
+des manifests jamais testés), déclenchés sur push vers `main` ou manuellement :
+
+- **`terraform-apply`** : LocalStack en service du job, `terraform apply` réel, vérifié via
+  `awscli` (pas seulement l'état Terraform).
+- **`k8s-deploy`** : cluster `kind` réel, récupère l'image publiée par `gravia`
+  (`ghcr.io/vigiroute/gravia-serving`, cf. `gravia/.github/workflows/publish-serving-image.yml`),
+  déploie les mêmes manifests que la démo locale.
+
+### Accès cross-repo au package GHCR
+
+Les deux dépôts étant **privés**, le package GHCR publié par `gravia` est privé par défaut —
+inaccessible depuis les workflows de `gravia-mlops` sans configuration explicite. Pas d'endpoint
+API documenté pour ça : réglé manuellement via **Manage Actions access** sur la page du package
+(`https://github.com/orgs/VigiRoute/packages/container/gravia-serving/settings` → *Add
+Repository* → `gravia-mlops`), pas via `gh api`/Terraform.
+
+### Deux bugs réels trouvés et corrigés en testant
+
+1. **Erreur de syntaxe YAML** : une commande `sed` contenant `image: gravia-serving:python3.12`
+   avait ses deux-points non protégés — YAML les interprétait comme un nouveau couple clé/valeur
+   (`mapping values are not allowed here`), rejetant le workflow avant même de créer les jobs
+   (échec en 0s, aucun job listé). Corrigé en passant ce `run:` en bloc littéral (`|`).
+2. **Retries MLflow par défaut** (même piège que `gravia/.github/workflows/ci.yml`) : les Pods
+   du cluster `kind` de CI restaient `Running` sans avoir encore loggué de tentative MLflow après
+   20 secondes fixes — MLflow retente 7 fois avec backoff exponentiel avant d'abandonner.
+   `MLFLOW_HTTP_REQUEST_MAX_RETRIES=1` ajouté au ConfigMap ; l'étape de vérification sonde
+   désormais les logs (jusqu'à 2 min) plutôt qu'un délai fixe.
+
+### Limite assumée pour `k8s-deploy` (documentée, pas contournée)
+
+Ce runner n'a pas de vrai MLflow avec le modèle `@staging` entraîné (contrairement à la démo
+locale, où la stack dev `gravia` tourne en parallèle du cluster `kind`) — le Pod ne peut donc pas
+devenir `Running`. Confirmé en pratique : `NameResolutionError` sur `host.docker.internal`
+(contrairement à Docker Desktop en local, ce nom spécial n'est pas résolu par défaut sur un
+runner Linux GitHub-hosted). Le job vérifie que le déploiement est correctement câblé jusqu'à ce
+point précis (logs montrant la tentative de connexion), pas un bug de packaging K8s.
+
+## Réentraînement planifié (CDC EF-6)
+
+Vit dans **`gravia`**, pas ici (`gravia/.github/workflows/retrain.yml`) : appelle directement
+`ml.training.benchmark`, déjà écrit et validé dans ce dépôt — pas de checkout cross-repo
+nécessaire, contrairement au déploiement K8s/Terraform. Même limite assumée que `k8s-deploy` :
+vérifie réellement la joignabilité de MLflow/PostgreSQL avant de lancer l'entraînement, s'arrête
+proprement si l'infra manque plutôt que de planter.
