@@ -106,15 +106,25 @@ jobs:
 
       - name: Vérifier le déploiement (pas un /health réussi — cf. commentaire du job ci-dessus)
         run: |
-          sleep 20
+          # Sondage plutôt qu'une attente fixe : un premier essai (sleep 20 fixe) s'est révélé
+          # trop court, constaté en testant — les Pods restaient `Running` sans encore avoir
+          # tenté MLflow à ce stade. MLFLOW_HTTP_REQUEST_MAX_RETRIES=1 (cf. serving-configmap.yaml)
+          # accélère l'échec, mais le délai exact dépend de la résolution DNS de
+          # host.docker.internal sur ce runner (Docker Engine standard, pas Docker Desktop) —
+          # pas garanti instantané.
+          for i in $(seq 1 12); do
+            kubectl logs -n gravia -l app=gravia-serving --tail=80 > pod.log 2>&1 || true
+            grep -qi "host.docker.internal" pod.log && break
+            sleep 10
+          done
           kubectl get pods -n gravia
           echo "--- logs (doit montrer une tentative de connexion à host.docker.internal, pas une erreur de packaging) ---"
-          kubectl logs -n gravia -l app=gravia-serving --tail=80 | tee pod.log
+          cat pod.log
           # Le mode d'échec exact diffère entre environnements : sur Docker Desktop (démo
           # locale), host.docker.internal résout mais rien n'écoute (Connection refused) ; sur
-          # ce runner Linux (Docker Engine standard, pas Docker Desktop), ce nom spécial n'est
-          # probablement même pas résolu (erreur DNS). Peu importe lequel : dans les deux cas,
-          # le nom `host.docker.internal` apparaît dans l'erreur — c'est ce qui prouve que le
-          # Pod a bien démarré, chargé sa config (ConfigMap/Secret), et tenté la bonne cible.
+          # ce runner Linux, ce nom spécial n'est probablement même pas résolu (erreur DNS).
+          # Peu importe lequel : dans les deux cas, le nom `host.docker.internal` apparaît dans
+          # l'erreur — c'est ce qui prouve que le Pod a bien démarré, chargé sa config
+          # (ConfigMap/Secret), et tenté la bonne cible.
           grep -qi "host.docker.internal" pod.log || \
             (echo "Échec inattendu : pas la cause attendue (MLflow injoignable)" && exit 1)
