@@ -84,17 +84,33 @@ jobs:
         run: kind create cluster --name gravia --config k8s/kind-config.yaml
 
       - name: Récupérer l'image publiée par gravia
+        # `:latest` sert de POINT D'ENTRÉE (la dernière image publiée par gravia), mais le tag
+        # lui-même est mutable — le déployer tel quel violerait la règle du projet ("images
+        # Docker en tag précis, jamais latest", cf. gravia/CLAUDE.md, choix techniques
+        # structurants). On retag donc localement avec le digest immuable juste après le pull.
+        # Pas de déploiement par référence `repo@sha256:...` directement : constaté en testant,
+        # `kind load docker-image` sur une référence par digest n'est pas reconnue par le kubelet
+        # comme "déjà présente" (imagePullPolicy: IfNotPresent) sur ce cluster — le Pod tentait
+        # un vrai pull du package GHCR privé (sans imagePullSecrets configuré) et finissait en
+        # `ImagePullBackOff`. Un tag dérivé du digest garde le comportement local-only déjà
+        # éprouvé (comme `:latest` avant) tout en étant aussi immuable qu'un digest : il change
+        # dès que le contenu de l'image change, jamais autrement.
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker pull ghcr.io/vigiroute/gravia-serving:latest
-          kind load docker-image ghcr.io/vigiroute/gravia-serving:latest --name gravia
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/vigiroute/gravia-serving:latest | cut -d: -f2)
+          PINNED_REF="ghcr.io/vigiroute/gravia-serving:sha-${DIGEST:0:12}"
+          docker tag ghcr.io/vigiroute/gravia-serving:latest "$PINNED_REF"
+          echo "Image pinned to : $PINNED_REF (digest sha256:$DIGEST)"
+          echo "PINNED_REF=$PINNED_REF" >> "$GITHUB_ENV"
+          kind load docker-image "$PINNED_REF" --name gravia
 
       - name: Préparer le Secret (valeurs de démo, jamais de vraies credentials en CI)
         run: cp k8s/serving-secret.example.yaml k8s/serving-secret.yaml
 
-      - name: Adapter le manifest à l'image GHCR
+      - name: Adapter le manifest à l'image GHCR (tag pinné au digest, pas `latest`)
         run: |
-          sed -i 's#image: gravia-serving:python3.12#image: ghcr.io/vigiroute/gravia-serving:latest#' k8s/serving-deployment.yaml
+          sed -i "s#image: gravia-serving:python3.12#image: ${PINNED_REF}#" k8s/serving-deployment.yaml
 
       - name: Déployer
         run: |
