@@ -93,7 +93,8 @@ jobs:
         run: cp k8s/serving-secret.example.yaml k8s/serving-secret.yaml
 
       - name: Adapter le manifest à l'image GHCR
-        run: sed -i 's#image: gravia-serving:python3.12#image: ghcr.io/vigiroute/gravia-serving:latest#' k8s/serving-deployment.yaml
+        run: |
+          sed -i 's#image: gravia-serving:python3.12#image: ghcr.io/vigiroute/gravia-serving:latest#' k8s/serving-deployment.yaml
 
       - name: Déployer
         run: |
