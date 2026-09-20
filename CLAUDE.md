@@ -1,4 +1,4 @@
-# CLAUDE.md — gravia-mlops
+# CLAUDE.md : gravia-mlops
 
 ## Contexte
 
@@ -11,7 +11,7 @@ complet du projet.
 
 Documentation du déploiement (pourquoi `kind`, pourquoi LocalStack et sa vraie limite, comment
 reproduire la démo K8s/Terraform, pièges rencontrés, vérifications sur infra réelle) :
-[docs/Deploiement_GRAVIA_MLOps.md](docs/Deploiement_GRAVIA_MLOps.md) — à lire avant de proposer un
+[docs/Deploiement_GRAVIA_MLOps.md](docs/Deploiement_GRAVIA_MLOps.md), à lire avant de proposer un
 changement d'architecture de déploiement, pour ne pas re-découvrir un piège déjà documenté.
 
 ## Structure
