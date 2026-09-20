@@ -23,7 +23,8 @@ resource "aws_iam_role" "eks_node" {
 #
 # EKS n'est de toute façon jamais appliqué dans ce dépôt, licence Pro ou non : sa réalité
 # opérationnelle (Deployment/Service/scaling/auto-guérison) est déjà vérifiée pour de vrai via
-# `kind` (cf. k8s/, CLAUDE.md « Pourquoi kind ») — ce bloc documente la cible AWS, il ne remplace
+# `kind` (cf. k8s/, docs/Deploiement_GRAVIA_MLOps.md « Pourquoi kind ») — ce bloc documente la
+# cible AWS, il ne remplace
 # pas cette vérification.
 resource "aws_ecr_repository" "serving" {
   count                = var.include_pro_only_services ? 1 : 0

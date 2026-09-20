@@ -16,7 +16,8 @@ variable "localstack_endpoint" {
   default     = "http://localhost:4566"
 }
 
-# Distinction cruciale, constatée en testant (cf. CLAUDE.md, "Pourquoi LocalStack") : LocalStack
+# Distinction cruciale, constatée en testant (cf. docs/Deploiement_GRAVIA_MLOps.md, "Pourquoi
+# LocalStack") : LocalStack
 # **Community** (gratuit) ne supporte ni ECR ni RDS (403 "not included within your LocalStack
 # license" constaté en interrogeant directement l'API) — seuls S3/IAM/EC2/KMS/STS/Secrets Manager
 # le sont. Les ressources RDS/ECR/EKS restent écrites (exigence CDC : architecture cible AWS

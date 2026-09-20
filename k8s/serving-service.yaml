@@ -4,7 +4,8 @@
 # répartit aussi la charge entre les répliques (aucun équivalent direct dans Compose).
 #
 # ClusterIP (pas NodePort/LoadBalancer) : accès via `kubectl port-forward` pour la démo locale
-# (cf. CLAUDE.md, section vérification) — un Ingress serait le choix cible en prod EKS
+# (cf. docs/Deploiement_GRAVIA_MLOps.md, section vérification) — un Ingress serait le choix
+# cible en prod EKS
 # (cf. Architecture_GRAVIA.md côté gravia), hors de portée de cette démo kind à un seul nœud.
 apiVersion: v1
 kind: Service
