@@ -1,7 +1,8 @@
 # Réseau minimal : un VPC, un sous-réseau public (serving, exposé), un sous-réseau privé
 # (base de données, pas d'accès direct depuis l'extérieur) — suffisant pour démontrer la
 # ségrégation réseau attendue (cf. Architecture_GRAVIA.md §7, "moindre privilège"), pas un
-# design multi-AZ de production réelle (hors de portée de la démo, cf. CLAUDE.md).
+# design multi-AZ de production réelle (hors de portée de la démo, cf.
+# docs/Deploiement_GRAVIA_MLOps.md).
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true

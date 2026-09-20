@@ -1,5 +1,6 @@
-# Bascule dev (LocalStack) / cible (AWS réel) par variable, pas par code dupliqué (cf. CLAUDE.md,
-# "Pourquoi LocalStack") : même provider, seuls endpoint et identifiants changent selon
+# Bascule dev (LocalStack) / cible (AWS réel) par variable, pas par code dupliqué (cf.
+# docs/Deploiement_GRAVIA_MLOps.md, "Pourquoi LocalStack") : même provider, seuls endpoint et
+# identifiants changent selon
 # `var.localstack_endpoint`. Vide (défaut en cible réelle) => aucun bloc `endpoints`, le provider
 # utilise les vrais endpoints AWS et les vraies credentials (variables AWS_* standard).
 terraform {

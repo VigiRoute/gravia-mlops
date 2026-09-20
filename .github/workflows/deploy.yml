@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Applicable en CI sans budget cloud : LocalStack Community en service du job (cf. CLAUDE.md,
-  # section Terraform — S3/IAM/EC2/Secrets Manager gratuits, RDS/ECR/EKS non appliqués ici).
+  # Applicable en CI sans budget cloud : LocalStack Community en service du job (cf.
+  # docs/Deploiement_GRAVIA_MLOps.md, section Terraform — S3/IAM/EC2/Secrets Manager gratuits,
+  # RDS/ECR/EKS non appliqués ici).
   terraform-apply:
     runs-on: ubuntu-latest
     services:
@@ -56,10 +57,10 @@ jobs:
 
   # Déploie l'image publiée par gravia (cf. gravia/.github/workflows/publish-serving-image.yml)
   # sur un vrai cluster K8s local — même outil (kind) et mêmes manifests que la vérification
-  # manuelle déjà documentée (cf. CLAUDE.md, "Pourquoi kind"), rejoués ici de façon automatisée.
-  # Indépendant de terraform-apply : ce sont deux démonstrations distinctes ("l'IaC s'applique",
-  # "les manifests K8s tournent"), pas un pipeline réel infra->déploiement (hors de portée sans
-  # vrai EKS, cf. CLAUDE.md).
+  # manuelle déjà documentée (cf. docs/Deploiement_GRAVIA_MLOps.md, "Pourquoi kind"), rejoués ici
+  # de façon automatisée. Indépendant de terraform-apply : ce sont deux démonstrations distinctes
+  # ("l'IaC s'applique", "les manifests K8s tournent"), pas un pipeline réel infra->déploiement
+  # (hors de portée sans vrai EKS, cf. docs/Deploiement_GRAVIA_MLOps.md).
   #
   # Limite assumée, pas contournée : ce runner n'a pas accès à un vrai MLflow/PostgreSQL/MinIO
   # avec le modèle @staging réellement entraîné (contrairement à la démo locale, où la stack dev

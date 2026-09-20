@@ -6,10 +6,11 @@
 # 2 répliques (pas 1) : démontre concrètement la répartition de charge par le Service
 # (cf. serving-service.yaml) et l'auto-guérison — tuer un Pod ne coupe pas le service, l'autre
 # réplique absorbe le trafic pendant que K8s en recrée un troisième. Pas un dimensionnement de
-# charge réel (ça reste la démo locale kind, cf. CLAUDE.md).
+# charge réel (ça reste la démo locale kind, cf. docs/Deploiement_GRAVIA_MLOps.md).
 #
 # `imagePullPolicy: IfNotPresent` : l'image est chargée dans le cluster kind via
-# `kind load docker-image` (cf. CLAUDE.md), pas tirée d'un registry — sans ce réglage, K8s
+# `kind load docker-image` (cf. docs/Deploiement_GRAVIA_MLOps.md), pas tirée d'un registry —
+# sans ce réglage, K8s
 # tenterait par défaut de la retélécharger et échouerait (aucun registry configuré ici).
 apiVersion: apps/v1
 kind: Deployment
