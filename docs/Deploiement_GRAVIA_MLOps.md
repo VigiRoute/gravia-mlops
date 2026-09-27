@@ -73,8 +73,15 @@ kubectl apply -f k8s/serving-secret.yaml
 kubectl apply -f k8s/serving-deployment.yaml
 kubectl apply -f k8s/serving-service.yaml
 
+# 5bis. Autoscaling (HorizontalPodAutoscaler) : nécessite metrics-server, absent de kind par défaut
+kubectl apply -f k8s/metrics-server.yaml
+kubectl rollout status deployment/metrics-server -n kube-system
+kubectl apply -f k8s/serving-hpa.yaml
+
 # 6. Vérifier (les Pods mettent ~30-60s à charger le modèle)
 kubectl get pods -n gravia
+kubectl top pods -n gravia          # nécessite metrics-server déjà prêt (~20-30s après son rollout)
+kubectl get hpa -n gravia           # TARGETS doit afficher un %, pas <unknown>
 kubectl port-forward -n gravia service/gravia-serving 8001:8000
 curl http://localhost:8001/health
 
@@ -104,14 +111,36 @@ faudrait un client qui frappe le Service depuis l'intérieur du cluster (un Pod 
   nom). Corrigé côté `gravia` (`infra/docker-compose.yml`, PR
   [VigiRoute/gravia#12](https://github.com/VigiRoute/gravia/pull/12)) : un fix dans le dépôt qui
   **construit**, découvert en testant le dépôt qui **déploie**.
+- **`metrics-server` reste bloqué sans remonter de métriques sur `kind`** (`kubectl top` échoue,
+  `kubectl get hpa` affiche `<unknown>`) : le certificat servi par le kubelet des nœuds `kind`
+  n'est pas signé par une CA que `metrics-server` valide par défaut. Corrigé en ajoutant
+  `--kubelet-insecure-tls` aux args du conteneur (cf. `k8s/metrics-server.yaml`) — spécifique à
+  `kind`, à retirer contre un vrai EKS.
+- **`LightGBMError: The number of features in data (24) is not the same as it was in training
+  data (23)` sur une vraie prédiction via le cluster `kind`**, alors que la même requête
+  fonctionnait sur la stack `docker-compose` : le Pod tournait une image `gravia-serving` chargée
+  le 2026-09-13, périmée par rapport à l'image reconstruite localement depuis (nouvelle feature
+  ajoutée entre-temps). `/health` ne l'a jamais révélé (ne passe pas par le modèle) — seule une
+  vraie requête `POST /v1/predict-severity` l'a montré. Corrigé par un nouveau
+  `kind load docker-image` + `kubectl rollout restart deployment/gravia-serving`. **Leçon** : après
+  tout rebuild de l'image serving, recharger et relancer le rollout sur `kind`, ne pas supposer que
+  `/health` suffit à couvrir un déploiement à jour.
 
-### Vérifié sur cluster réel (2026-09-13)
+### Vérifié sur cluster réel (2026-09-13, HPA revérifié le 2026-09-27)
 
 - `kubectl apply` des 5 manifests → 2/2 Pods `Running`, `/health` → `200 OK`.
 - Requête réelle `POST /v1/predict-severity` → prédiction + explication SHAP correctes.
 - Auto-guérison : `kubectl delete pod` sur une réplique → remplacée automatiquement, le Service
   reste disponible via l'autre réplique pendant ce temps.
-- Scaling : `kubectl scale --replicas=3` puis retour à 2 → les deux transitions fonctionnent.
+- Scaling manuel : `kubectl scale --replicas=3` puis retour à 2 → les deux transitions
+  fonctionnent.
+- **Autoscaling (HPA)** : `metrics-server` + `HorizontalPodAutoscaler` (2-5 répliques, cible 70 %
+  CPU) appliqués et vérifiés — `kubectl get hpa` remonte une vraie valeur `cpu: X%/70%` (pas
+  `<unknown>`), confirmée réactive à une charge réelle générée contre le Service (pic mesuré à 41 %
+  sous requêtes concurrentes sur `/v1/predict-severity`). Un passage à l'échelle complet
+  (déclenchement effectif d'une 3ᵉ réplique) demanderait une charge soutenue plus longue que le
+  test ponctuel réalisé ici — le mécanisme est vérifié fonctionnel, pas le scaling effectif filmé
+  en vidéo.
 
 ## Terraform (IaC, LocalStack → AWS)
 
