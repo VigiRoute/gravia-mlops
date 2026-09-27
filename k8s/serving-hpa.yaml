@@ -1,0 +1,27 @@
+# HorizontalPodAutoscaler pour gravia-serving. Nécessite metrics-server (metrics-server.yaml)
+# appliqué au préalable, sinon `kubectl get hpa` reste bloqué sur TARGETS = <unknown>/70%.
+#
+# Bornes 2-5 répliques : 2 = le plancher déjà utilisé sans autoscaling (auto-guérison /
+# répartition de charge démontrées, cf. serving-deployment.yaml) ; 5 = démontrable en local sur un
+# unique nœud kind sans épuiser ses ressources. Seuil 70 % de la requête CPU (500m, cf.
+# serving-deployment.yaml) : marge sous les 100 % pour absorber un pic avant saturation complète,
+# valeur usuelle de départ pour un service HTTP, pas mesurée finement sur ce projet.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gravia-serving
+  namespace: gravia
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gravia-serving
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
